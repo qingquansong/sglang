@@ -719,6 +719,9 @@ async def v1_completions(tokenizer_manager, raw_request: Request):
                     prompt_tokens[index] = content["meta_info"]["prompt_tokens"]
                     completion_tokens[index] = content["meta_info"]["completion_tokens"]
 
+                    # QQ: 0 for the case of multi-item scoring
+                    completion_tokens[index] = content["meta_info"].get("completion_tokens", 0)
+
                     if not stream_buffer:  # The first chunk
                         if request.echo:
                             if isinstance(request.prompt, str):

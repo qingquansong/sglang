@@ -64,6 +64,8 @@ class TpModelWorker:
             is_embedding=server_args.is_embedding,
             dtype=server_args.dtype,
             quantization=server_args.quantization,
+            delimiter=server_args.multi_item_scoring_delimiter,
+            labels=server_args.multi_item_scoring_labels,
         )
         self.model_runner = ModelRunner(
             model_config=self.model_config,

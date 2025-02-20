@@ -58,6 +58,8 @@ class LogitsProcessorOutput:
     input_top_logprobs_val: List = None
     input_top_logprobs_idx: List = None
 
+    # indicate whether the output is multi-item scoring output
+    is_multi_item_scoring: bool = False
 
 @dataclasses.dataclass
 class LogitsMetadata:
@@ -114,6 +116,12 @@ class LogitsProcessor(nn.Module):
         self.do_tensor_parallel_all_gather = (
             not skip_all_gather and get_tensor_model_parallel_world_size() > 1
         )
+        # assign label indices to slice for multi-item scoring
+        if config.delimiter_token:
+            self.label_indices = torch.tensor(self.config.label_tokens, device="cuda")  # [9642, 2822] for llama3 "Yes" and "No"
+        else:
+            self.label_indices = None
+
         self.final_logit_softcapping = getattr(
             self.config, "final_logit_softcapping", None
         )
@@ -123,15 +131,57 @@ class LogitsProcessor(nn.Module):
         ):
             self.final_logit_softcapping = None
 
+    def multi_item_scoring(
+        self,
+        input_ids,
+        hidden_states,
+        lm_head: VocabParallelEmbedding,
+        logits_metadata: Union[LogitsMetadata, ForwardBatch],
+        delimiter_token: int,
+    ):
+        if logits_metadata.forward_mode.is_decode():
+            last_index = None
+            last_hidden = hidden_states
+        else:
+            if len(input_ids) > 1:
+                multi_item_indices = (input_ids == delimiter_token).nonzero(as_tuple=True)[0] - 1
+                if len(multi_item_indices) <= 1:
+                    multi_item_indices = torch.cumsum(logits_metadata.extend_seq_lens, dim=0) - 1
+                else:
+                    # we do [1:] to exclude the first one which is the one between <prefix> and <candidate1>
+                    multi_item_indices = multi_item_indices[1:]
+            else:
+                multi_item_indices = torch.cumsum(logits_metadata.extend_seq_lens, dim=0) - 1
+            # slice the hidden_states required for compute multi-item scores
+            last_hidden = hidden_states[multi_item_indices]
+
+        last_logits = self._get_logits(last_hidden, lm_head)
+        last_logprobs = torch.nn.functional.log_softmax(last_logits, dim=-1)
+        return LogitsProcessorOutput(
+            next_token_logits=last_logits,
+            input_token_logprobs=last_logprobs[:, self.label_indices],  # slice the chosen label prob here
+            is_multi_item_scoring=False if logits_metadata.forward_mode.is_decode() else True
+        )
+
     def forward(
         self,
         input_ids,
         hidden_states,
         lm_head: VocabParallelEmbedding,
         logits_metadata: Union[LogitsMetadata, ForwardBatch],
+        delimiter_token: Optional[int],  #  128001 is <|end_of_text|> and 198 is "\n"
     ):
         if isinstance(logits_metadata, ForwardBatch):
             logits_metadata = LogitsMetadata.from_forward_batch(logits_metadata)
+
+        if delimiter_token:
+            return self.multi_item_scoring(
+                        input_ids, 
+                        hidden_states, 
+                        lm_head, 
+                        logits_metadata, 
+                        delimiter_token
+                    )
 
         # Get the last hidden states and last logits for the next token prediction
         if (

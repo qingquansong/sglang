@@ -619,7 +619,9 @@ def _set_envs_and_config(server_args: ServerArgs):
     # Set global environments
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
     os.environ["NCCL_CUMEM_ENABLE"] = "0"
-    os.environ["NCCL_NVLS_ENABLE"] = "0"
+    # @afatahibaarzi: Enable NVLS to use NVLS for prefill heavy tasks.
+    # https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html#nccl-nvls-enable
+    os.environ["NCCL_NVLS_ENABLE"] = "1"
     os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
     os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "4"
 

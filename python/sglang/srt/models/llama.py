@@ -391,7 +391,11 @@ class LlamaForCausalLM(nn.Module):
         hidden_states = self.model(input_ids, positions, forward_batch, input_embeds)
         if not get_embedding:
             return self.logits_processor(
-                input_ids, hidden_states, self.lm_head, forward_batch
+                input_ids,
+                hidden_states,
+                self.lm_head,
+                forward_batch,
+                delimiter_token=self.config.delimiter_token,
             )
         else:
             return self.pooler(hidden_states, forward_batch)

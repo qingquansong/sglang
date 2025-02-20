@@ -779,13 +779,18 @@ class ModelRunner:
             sampling_info.update_penalties()
         sampling_info.apply_logits_bias(logits_output.next_token_logits)
 
-        # Sample the next tokens
-        next_token_ids = self.sampler(
-            logits_output,
-            sampling_info,
-            forward_batch.return_logprob,
-            forward_batch.top_logprobs_nums,
-        )
+        # Sample the next tokens.
+        if logits_output.is_multi_item_scoring:
+            next_token_ids = torch.zeros(
+                len(forward_batch.seq_lens), dtype=torch.int32, device=self.device
+            )
+        else:
+            next_token_ids = self.sampler(
+                logits_output,
+                sampling_info,
+                forward_batch.return_logprob,
+                forward_batch.top_logprobs_nums,
+            )
         return next_token_ids
 
     @property

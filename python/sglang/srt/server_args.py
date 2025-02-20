@@ -18,7 +18,7 @@ import dataclasses
 import logging
 import random
 import tempfile
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import torch
 
@@ -35,6 +35,14 @@ from sglang.srt.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def str_or_int(value):
+    """Parses `value` as int if possible; otherwise returns the string."""
+    try:
+        return int(value)
+    except ValueError:
+        return value
 
 
 @dataclasses.dataclass
@@ -56,6 +64,11 @@ class ServerArgs:
     is_embedding: bool = False
     revision: Optional[str] = None
     skip_tokenizer_init: bool = False
+    add_special_tokens: bool = False
+
+    # multi-item-scoring
+    multi_item_scoring_delimiter: Optional[Union[int]] = None
+    multi_item_scoring_labels: Optional[list[int]] = None
 
     # Port for the HTTP server
     host: str = "127.0.0.1"
@@ -419,6 +432,12 @@ class ServerArgs:
             help="The specific model version to use. It can be a branch "
             "name, a tag name, or a commit id. If unspecified, will use "
             "the default version.",
+        )
+        parser.add_argument(
+            "--add_special_tokens",
+            type=bool,
+            default=ServerArgs.add_special_tokens,
+            help="Tokenizers param to add or not special tokens"
         )
         # Memory and scheduling
         parser.add_argument(
@@ -859,6 +878,20 @@ class ServerArgs:
             "--enable-memory-saver",
             action="store_true",
             help="Allow saving memory using release_memory_occupation and resume_memory_occupation",
+        )
+
+        # Args for multi-item-scoring
+        parser.add_argument(
+            "--multi-item-scoring-delimiter",
+            type=str_or_int,
+            default=ServerArgs.multi_item_scoring_delimiter,
+            help="Delimiter used for multi-item scoring.",
+        )
+        parser.add_argument(
+            "--multi-item-scoring-labels",
+            nargs="+",
+            default=ServerArgs.multi_item_scoring_labels,
+            help="Labels used for multi-item scoring logit extractor.",
         )
 
     @classmethod

@@ -74,7 +74,7 @@ class SchedulePolicy:
 
         # It is used to find the matching prefix for in-batch prefix caching.
         self.waiting_queue_radix_tree = RadixCache(
-            req_to_token_pool=None, token_to_kv_pool=None, disable=False
+            req_to_token_pool=None, token_to_kv_pool=None, disable=False, delimiter_token=getattr(tree_cache, "delimiter_token", -1)
         )
 
     def calc_priority(self, waiting_queue: List[Req]) -> bool:

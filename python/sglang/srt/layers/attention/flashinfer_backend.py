@@ -135,6 +135,12 @@ class FlashInferAttnBackend(AttentionBackend):
                 )
             )
 
+        # For multi-item scoring with sparse flashinfer prefill attn api
+        if hasattr(model_runner.model_config.hf_config, "delimiter_token"):
+            self.delimiter_token = model_runner.model_config.hf_config.delimiter_token
+        else:
+            self.delimiter_token = None
+
         # Create indices updater
         self.indices_updater_decode = FlashInferIndicesUpdaterDecode(model_runner, self)
         self.indices_updater_prefill = FlashInferIndicesUpdaterPrefill(
@@ -189,12 +195,17 @@ class FlashInferAttnBackend(AttentionBackend):
             prefix_lens = forward_batch.extend_prefix_lens
 
             # Some heuristics to check whether to use ragged forward
-            if forward_batch.extend_num_tokens >= 4096 and self.num_wrappers == 1:
+            if forward_batch.extend_num_tokens >= 4096 and self.num_wrappers == 1 and self.delimiter_token is None:
                 use_ragged = True
                 extend_no_prefix = not any(forward_batch.extend_prefix_lens_cpu)
             else:
                 use_ragged = False
                 extend_no_prefix = False
+
+            self.prefix_len_ptr = getattr(forward_batch, "prefix_len_ptr", None)
+            self.token_pos_in_items_ptr = getattr(forward_batch, "token_pos_in_items_ptr", None)
+            self.token_pos_in_items_len = getattr(forward_batch, "token_pos_in_items_len", 0)
+            self.max_item_len_ptr = getattr(forward_batch, "max_item_len_ptr", None)
 
             self.indices_updater_prefill.update(
                 forward_batch.req_pool_indices,
@@ -205,6 +216,10 @@ class FlashInferAttnBackend(AttentionBackend):
                 use_ragged=use_ragged,
                 encoder_lens=forward_batch.encoder_lens,
                 spec_info=None,
+                prefix_len_ptr=self.prefix_len_ptr,
+                token_pos_in_items_ptr=self.token_pos_in_items_ptr,
+                token_pos_in_items_len=self.token_pos_in_items_len,
+                max_item_len_ptr=self.max_item_len_ptr,
             )
             self.forward_metadata = PrefillMetadata(
                 self.prefill_wrappers_paged, use_ragged, extend_no_prefix
@@ -366,7 +381,7 @@ class FlashInferAttnBackend(AttentionBackend):
                 forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id),
                 causal=not layer.is_cross_attention,
                 sm_scale=layer.scaling,
-                window_left=layer.sliding_window_size,
+                window_left=layer.sliding_window_size if self.prefix_len_ptr is None else -1,
                 logits_soft_cap=logits_soft_cap,
                 k_scale=layer.k_scale,
                 v_scale=layer.v_scale,
@@ -425,7 +440,6 @@ class FlashInferAttnBackend(AttentionBackend):
                 forward_batch.token_to_kv_pool.set_kv_buffer(
                     layer, cache_loc, k, v, layer.k_scale, layer.v_scale
                 )
-
         o = decode_wrapper.forward(
             q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim),
             forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id),
@@ -662,6 +676,10 @@ class FlashInferIndicesUpdaterPrefill:
         use_ragged: bool,
         encoder_lens: Optional[torch.Tensor],
         spec_info: Optional[SpecInfo],
+        prefix_len_ptr: Optional[torch.Tensor],
+        token_pos_in_items_ptr: Optional[torch.Tensor],
+        token_pos_in_items_len: Optional[int],
+        max_item_len_ptr: Optional[torch.Tensor],
     ):
         # Keep the signature for type checking. It will be assigned during runtime.
         raise NotImplementedError()
@@ -676,6 +694,10 @@ class FlashInferIndicesUpdaterPrefill:
         use_ragged: bool,
         encoder_lens: Optional[torch.Tensor],
         spec_info: Optional[SpecInfo],
+        prefix_len_ptr: Optional[torch.Tensor],
+        token_pos_in_items_ptr: Optional[torch.Tensor],
+        token_pos_in_items_len: Optional[int],
+        max_item_len_ptr: Optional[torch.Tensor],
     ):
         if use_ragged:
             paged_kernel_lens = prefix_lens
@@ -697,6 +719,10 @@ class FlashInferIndicesUpdaterPrefill:
             self.qo_indptr[0],
             use_ragged,
             spec_info,
+            prefix_len_ptr,
+            token_pos_in_items_ptr,
+            token_pos_in_items_len,
+            max_item_len_ptr,
         )
 
     def update_sliding_window(
@@ -709,6 +735,10 @@ class FlashInferIndicesUpdaterPrefill:
         use_ragged: bool,
         encoder_lens: Optional[torch.Tensor],
         spec_info: Optional[SpecInfo],
+        prefix_len_ptr: Optional[torch.Tensor],
+        token_pos_in_items_ptr: Optional[torch.Tensor],
+        token_pos_in_items_len: Optional[int],
+        max_item_len_ptr: Optional[torch.Tensor],
     ):
         for wrapper_id in range(2):
             if wrapper_id == 0:
@@ -716,7 +746,7 @@ class FlashInferIndicesUpdaterPrefill:
                 paged_kernel_lens = torch.minimum(
                     seq_lens,
                     torch.tensor(self.sliding_window_size) + seq_lens - prefix_lens,
-                )
+                    )
                 paged_kernel_lens_sum = paged_kernel_lens.sum().item()
             else:
                 # full attention
@@ -738,6 +768,10 @@ class FlashInferIndicesUpdaterPrefill:
                 self.qo_indptr[wrapper_id],
                 use_ragged,
                 spec_info,
+                prefix_len_ptr,
+                token_pos_in_items_ptr,
+                token_pos_in_items_len,
+                max_item_len_ptr,
             )
 
     def update_cross_attention(
@@ -750,6 +784,10 @@ class FlashInferIndicesUpdaterPrefill:
         use_ragged: bool,
         encoder_lens: Optional[torch.Tensor],
         spec_info: Optional[SpecInfo],
+        prefix_len_ptr: Optional[torch.Tensor],
+        token_pos_in_items_ptr: Optional[torch.Tensor],
+        token_pos_in_items_len: Optional[int],
+        max_item_len_ptr: Optional[torch.Tensor],
     ):
         for wrapper_id in range(2):
             if wrapper_id == 0:
@@ -776,6 +814,10 @@ class FlashInferIndicesUpdaterPrefill:
                 self.qo_indptr[wrapper_id],
                 use_ragged,
                 spec_info,
+                prefix_len_ptr,
+                token_pos_in_items_ptr,
+                token_pos_in_items_len,
+                max_item_len_ptr,
             )
 
     def call_begin_forward(
@@ -792,6 +834,10 @@ class FlashInferIndicesUpdaterPrefill:
         qo_indptr: torch.Tensor,
         use_ragged: bool,
         spec_info: Optional[SpecInfo],
+        prefix_len_ptr: Optional[torch.Tensor],
+        token_pos_in_items_ptr: Optional[torch.Tensor],
+        token_pos_in_items_len: Optional[int],
+        max_item_len_ptr: Optional[torch.Tensor],
     ):
         bs = len(req_pool_indices)
         if spec_info is None:
@@ -847,9 +893,12 @@ class FlashInferIndicesUpdaterPrefill:
             self.head_dim,
             1,
             q_data_type=self.q_data_type,
-            custom_mask=custom_mask,
+            custom_mask=custom_mask if prefix_len_ptr is None else None,
+            prefix_len_ptr=prefix_len_ptr,
+            token_pos_in_items_ptr=token_pos_in_items_ptr,
+            token_pos_in_items_len=token_pos_in_items_len,
+            max_item_len_ptr=max_item_len_ptr,
         )
-
 
 @triton.jit
 def create_flashinfer_kv_indices_triton(

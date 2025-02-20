@@ -168,6 +168,8 @@ class Scheduler:
             is_embedding=server_args.is_embedding,
             dtype=server_args.dtype,
             quantization=server_args.quantization,
+            delimiter=server_args.multi_item_scoring_delimiter,
+            labels=server_args.multi_item_scoring_labels,
         )
         self.is_generation = self.model_config.is_generation
 
@@ -272,6 +274,7 @@ class Scheduler:
                 req_to_token_pool=self.req_to_token_pool,
                 token_to_kv_pool=self.token_to_kv_pool,
                 disable=server_args.disable_radix_cache,
+                delimiter_token=server_args.multi_item_scoring_delimiter,
             )
         self.tree_cache_metrics = {"total": 0, "hit": 0}
         self.policy = SchedulePolicy(self.schedule_policy, self.tree_cache)
@@ -1023,7 +1026,65 @@ class Scheduler:
     def process_batch_result_prefill(self, batch: ScheduleBatch, result):
         skip_stream_req = None
 
-        if self.is_generation:
+        if self.server_args.multi_item_scoring_delimiter is not None:
+            logits_output, next_token_ids, bid = result
+            if self.enable_overlap:
+                logits_output, next_token_ids = self.tp_worker.resolve_batch_result(bid)
+            else:
+                logits_output.input_token_logprobs = (
+                    logits_output.input_token_logprobs.tolist()
+                )
+            
+            # Check finish conditions
+            logprob_pt = 0
+            all_input_token_logprobs = logits_output.input_token_logprobs.tolist()
+            for i, (req, next_token_id) in enumerate(zip(batch.reqs, next_token_ids)):
+                if req.is_retracted:
+                    continue
+
+                if self.is_mixed_chunk and self.enable_overlap and req.finished():
+                    # Free the one delayed token for the mixed decode batch
+                    j = len(batch.out_cache_loc) - len(batch.reqs) + i
+                    self.token_to_kv_pool.free(batch.out_cache_loc[j : j + 1])
+                    continue
+
+                if req.is_being_chunked <= 0:
+                    req.output_ids.append(next_token_id)
+                    req.check_finished()
+
+                    if req.finished():
+                        self.tree_cache.cache_finished_req(req)
+                    elif not batch.decoding_reqs or req not in batch.decoding_reqs:
+                        self.tree_cache.cache_unfinished_req(req)
+
+                    delimiter_num = req.origin_input_ids.count(self.server_args.multi_item_scoring_delimiter)
+                    if i != 0 or delimiter_num == 0:
+                        # QQ Note: we excluded the first log prob from second req
+                        # first req's first delimiter has been excluded in the logit processor
+                        # if delimiter_num == 0, we also exclude the first one for the first req, since we'll return a padding last hidden_state computed logprob
+                        logprob_pt +=1
+                    delimiter_num = max(delimiter_num - 1, 0) # exclude the first delimeter as it's between prefix and first candidate
+                    req.input_token_logprobs = all_input_token_logprobs[logprob_pt:logprob_pt + delimiter_num]
+                    logprob_pt += delimiter_num
+                    if i == len(batch.reqs) - 1 and i != 0:
+                        # QQ Note: check if the all logprob has been extracted
+                        if logprob_pt != len(all_input_token_logprobs):
+                            logger.warning(f"Request {i} extraction warning: logprob_pt is {logprob_pt}, expected {len(all_input_token_logprobs)}")
+                else:
+                    # being chunked reqs' prefill is not finished
+                    req.is_being_chunked -= 1
+                    # There is only at most one request being currently chunked.
+                    # Because this request does not finish prefill,
+                    # we don't want to stream the request currently being chunked.
+                    skip_stream_req = req
+
+            if batch.next_batch_sampling_info:
+                batch.next_batch_sampling_info.update_regex_vocab_mask()
+                self.current_stream.synchronize()
+                batch.next_batch_sampling_info.sampling_info_done.set()
+                
+
+        elif self.is_generation:
             logits_output, next_token_ids, bid = result
 
             if self.enable_overlap:
@@ -1298,6 +1359,10 @@ class Scheduler:
                     normalized_prompt_logprob
                 ) = None
 
+            if self.server_args.multi_item_scoring_delimiter is not None:
+                input_token_logprobs_val = []
+                input_token_logprobs_idx = []
+
             for req in reqs:
                 if req is skip_req:
                     continue
@@ -1334,7 +1399,7 @@ class Scheduler:
                     completion_tokens.append(len(req.output_ids))
                     cached_tokens.append(req.cached_tokens)
 
-                    if return_logprob:
+                    if return_logprob and self.server_args.multi_item_scoring_delimiter is None:
                         input_token_logprobs_val.append(req.input_token_logprobs_val)
                         input_token_logprobs_idx.append(req.input_token_logprobs_idx)
                         output_token_logprobs_val.append(req.output_token_logprobs_val)
@@ -1344,6 +1409,8 @@ class Scheduler:
                         output_top_logprobs_val.append(req.output_top_logprobs_val)
                         output_top_logprobs_idx.append(req.output_top_logprobs_idx)
                         normalized_prompt_logprob.append(req.normalized_prompt_logprob)
+                    elif self.server_args.multi_item_scoring_delimiter is not None:
+                        input_token_logprobs_val += req.input_token_logprobs
 
             # Send to detokenizer
             if rids:

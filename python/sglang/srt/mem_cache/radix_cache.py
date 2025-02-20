@@ -46,10 +46,10 @@ class TreeNode:
         return self.last_access_time < other.last_access_time
 
 
-def _key_match(key0: List, key1: List):
+def _key_match(key0: List, key1: List, delimiter_token: int = -1):
     i = 0
     for k0, k1 in zip(key0, key1):
-        if k0 != k1:
+        if k0 != k1 or k0 == delimiter_token or k1 == delimiter_token:
             break
         i += 1
     return i
@@ -61,10 +61,12 @@ class RadixCache(BasePrefixCache):
         req_to_token_pool: ReqToTokenPool,
         token_to_kv_pool: BaseTokenToKVPool,
         disable: bool = False,
+        delimiter_token: int = -1,
     ):
         self.req_to_token_pool = req_to_token_pool
         self.token_to_kv_pool = token_to_kv_pool
         self.disable = disable
+        self.delimiter_token = delimiter_token
         self.reset()
 
     ##### Public API #####
@@ -154,7 +156,7 @@ class RadixCache(BasePrefixCache):
 
         # The prefix indices could be updated, reuse it
         new_indices, new_last_node = self.match_prefix(token_ids)
-        assert len(new_indices) == len(token_ids)
+
         self.req_to_token_pool.write(
             (req.req_pool_idx, slice(len(req.prefix_indices), len(new_indices))),
             new_indices[len(req.prefix_indices) :],
@@ -235,7 +237,7 @@ class RadixCache(BasePrefixCache):
 
         if key[0] in node.children.keys():
             child = node.children[key[0]]
-            prefix_len = _key_match(child.key, key)
+            prefix_len = _key_match(child.key, key, self.delimiter_token)
             if prefix_len < len(child.key):
                 new_node = self._split_node(child.key, child, prefix_len)
                 value.append(new_node.value)
@@ -264,9 +266,9 @@ class RadixCache(BasePrefixCache):
         if len(key) == 0:
             return 0
 
-        if key[0] in node.children.keys():
+        if key[0] in node.children.keys() and key[0] != self.delimiter_token:
             child = node.children[key[0]]
-            prefix_len = _key_match(child.key, key)
+            prefix_len = _key_match(child.key, key, self.delimiter_token)
 
             if prefix_len == len(child.key):
                 if prefix_len == len(key):

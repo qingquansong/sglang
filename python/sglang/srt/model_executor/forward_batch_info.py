@@ -214,7 +214,7 @@ class ForwardBatch:
                     mrope_position_delta,
                     int(self.seq_lens[i]) - 1,
                     int(self.seq_lens[i]),
-                )
+                    )
         elif self.forward_mode.is_extend():
             extend_start_loc_cpu = self.extend_start_loc.cpu().numpy()
             for i, image_inputs in enumerate(batch.image_inputs):
@@ -226,20 +226,20 @@ class ForwardBatch:
                 if image_inputs is None:
                     # text only
                     mrope_positions = [
-                        [
-                            pos
-                            for pos in range(
-                                extend_prefix_len, extend_prefix_len + extend_seq_len
-                            )
-                        ]
-                    ] * 3
+                                          [
+                                              pos
+                                              for pos in range(
+                                              extend_prefix_len, extend_prefix_len + extend_seq_len
+                                          )
+                                          ]
+                                      ] * 3
                 else:
                     # TODO: current qwen2-vl do not support radix cache since mrope position calculation
                     mrope_positions, mrope_position_delta = (
                         MRotaryEmbedding.get_input_positions(
                             input_tokens=self.input_ids[
-                                extend_start_loc : extend_start_loc + extend_seq_len
-                            ],
+                                         extend_start_loc : extend_start_loc + extend_seq_len
+                                         ],
                             image_grid_thw=image_inputs.image_grid_thws,
                             vision_start_token_id=hf_config.vision_start_token_id,
                             spatial_merge_size=hf_config.vision_config.spatial_merge_size,
@@ -345,6 +345,59 @@ class ForwardBatch:
         if model_runner.server_args.lora_paths is not None:
             model_runner.lora_manager.prepare_lora_batch(ret)
 
+        if model_runner.model_config.hf_config.delimiter_token:
+            # A boolean vec to indicate the delimiter position for multi-item scoring
+            delimiter_indicator_bool_vector = (ret.input_ids == model_runner.model_config.hf_config.delimiter_token)
+        else:
+            delimiter_indicator_bool_vector = None
+
+        token_pos_in_items_len = None
+        prefix_cache_lens = getattr(ret, "extend_prefix_lens", None)
+        if delimiter_indicator_bool_vector is not None and len(delimiter_indicator_bool_vector) != 0 and ret.forward_mode != ForwardMode.DECODE:
+            extend_seq_lens = getattr(ret, "extend_seq_lens", None)
+            prefix_len_ptr = []
+            token_pos_in_items_ptr = []
+            if extend_seq_lens is not None and len(extend_seq_lens) > 1:
+                seq_start_idx = 0
+                for idx, extend_seq_len in enumerate(extend_seq_lens):
+                    seq_end_idx = seq_start_idx + extend_seq_len
+                    current_delimiter_indicator_bool_vector = delimiter_indicator_bool_vector[seq_start_idx:seq_end_idx]
+                    delimiter_indices = torch.nonzero(current_delimiter_indicator_bool_vector, as_tuple=True)[0]
+                    current_seq_positions = ret.positions[seq_start_idx:seq_end_idx]
+                    if len(delimiter_indices) > 0:
+                        first_delimiter_pos = delimiter_indices[0]
+                        if prefix_cache_lens is not None:
+                            prefix_len_ptr.append(first_delimiter_pos + prefix_cache_lens[idx])
+                        else:
+                            prefix_len_ptr.append(first_delimiter_pos)
+                        diff = current_seq_positions[first_delimiter_pos:] - torch.cummax(current_delimiter_indicator_bool_vector[first_delimiter_pos:], 0)[1]
+                        token_pos_in_items = diff - current_seq_positions[first_delimiter_pos]
+                        token_pos_in_items_ptr.append(token_pos_in_items.to(torch.uint16))
+                        current_seq_positions[first_delimiter_pos:] = diff - 1
+                        ret.positions[seq_start_idx:seq_end_idx] = current_seq_positions
+                    seq_start_idx = seq_end_idx
+                # padding
+                token_pos_in_items_len = max([t.numel() for t in token_pos_in_items_ptr])
+                token_pos_in_items_ptr = [torch.cat([t.to(torch.uint16), torch.zeros(token_pos_in_items_len - t.numel(), dtype=torch.uint16, device=t.device)])  for t in token_pos_in_items_ptr]
+            else:
+                delimiter_indices = torch.nonzero(delimiter_indicator_bool_vector, as_tuple=True)[0]
+                if len(delimiter_indices) > 0:
+                    first_delimiter_pos = delimiter_indices[0]
+                    if prefix_cache_lens is not None:
+                        prefix_len_ptr.append(first_delimiter_pos + prefix_cache_lens[0])
+                    else:
+                        prefix_len_ptr.append(first_delimiter_pos)
+                    diff = ret.positions[first_delimiter_pos:] - torch.cummax(delimiter_indicator_bool_vector[first_delimiter_pos:], 0)[1]
+                    token_pos_in_items = diff - ret.positions[first_delimiter_pos]
+                    token_pos_in_items_ptr.append(token_pos_in_items.to(torch.uint16))
+                    token_pos_in_items_len = token_pos_in_items_ptr[0].numel()
+                    ret.positions[first_delimiter_pos:] = diff - 1
+
+            if len(prefix_len_ptr) > 0:
+                ret.prefix_len_ptr = torch.cat([t.reshape(-1) if t.dim() == 0 else t for t in prefix_len_ptr], dim=0).to(torch.uint32)  # to uint32
+                ret.token_pos_in_items_ptr = torch.cat(token_pos_in_items_ptr, dim=0)  # uint16
+                ret.token_pos_in_items_len = token_pos_in_items_len & 0xFFFFFFFF  # to uint32
+                ret.max_item_len_ptr = torch.stack([t.to(torch.int32).max().to(torch.uint16) for t in token_pos_in_items_ptr], dim=0)
         return ret
 
 
@@ -396,7 +449,7 @@ def compute_position_kernel(
             positions + cumsum_start + offset,
             prefix_len + offset,
             mask=offset < seq_len,
-        )
+            )
     tl.store(extend_start_loc + pid, cumsum_start)
 
 

@@ -266,7 +266,7 @@ class TokenizerManager:
             input_embeds = obj.input_embeds
             input_ids = obj.input_ids
         elif obj.input_ids is None:
-            input_ids = self.tokenizer.encode(input_text)
+            input_ids = self.tokenizer.encode(input_text, add_special_tokens=self.server_args.add_special_tokens)
         else:
             input_ids = obj.input_ids
 
@@ -684,7 +684,9 @@ class TokenizerManager:
                         "finish_reason": recv_obj.finished_reasons[i],
                         "prompt_tokens": recv_obj.prompt_tokens[i],
                     }
-
+                    if self.server_args.multi_item_scoring_delimiter is not None:
+                        meta_info["input_token_logprobs"] = recv_obj.input_token_logprobs_val
+                        
                     if getattr(state.obj, "return_logprob", False):
                         self.convert_logprob_style(
                             meta_info,

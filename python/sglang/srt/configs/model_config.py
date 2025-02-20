@@ -43,6 +43,8 @@ class ModelConfig:
         is_embedding: Optional[bool] = None,
         dtype: str = "auto",
         quantization: Optional[str] = None,
+        delimiter: Optional[Union[str, int]] = None,
+        labels: Optional[list] = None,
     ) -> None:
         self.model_path = model_path
         self.revision = revision
@@ -56,6 +58,16 @@ class ModelConfig:
             revision=revision,
             model_override_args=self.model_override_args,
         )
+        # tokenize and add delimiter token and choice labels to the hf config for multi-item scoring
+        if delimiter:
+            delimiter_token = int(delimiter)
+            label_tokens = [int(label) for label in labels]
+            self.hf_config.update({"delimiter_token": delimiter_token})
+            self.hf_config.update({"label_tokens": label_tokens})
+        else:
+            self.hf_config.update({"delimiter_token": None})
+            self.hf_config.update({"label_tokens": None})
+
         self.hf_text_config = get_hf_text_config(self.hf_config)
 
         # Check model type
