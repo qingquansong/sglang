@@ -49,8 +49,12 @@ def _per_token_group_quant_fp8(
     # Quant
     _absmax = tl.maximum(tl.max(tl.abs(y)), eps)
     y_s = _absmax / fp8_max
-    y_q = tl.clamp(y / y_s) # , fp8_min, fp8_max # .to(y_q_ptr.dtype.element_ty)
-
+    # y_q = tl.clamp(y / y_s, fp8_min, fp8_max ) # .to(y_q_ptr.dtype.element_ty)
+    # y_q = y / y_s
+    # y_s_recip = 1.0 / tl.cast(y_s, tl.float64)
+    # y_q = y * tl.cast(y_s_recip, tl.float32) # * fp8_max / _absmax
+    # y_q = tl.cast(tl.cast(y, tl.float64) / tl.cast(y_s, tl.float64), tl.float32)
+    y_q = tl.cast(y, tl.float64) / tl.cast(y_s, tl.float64)
     tl.store(y_q_ptr + cols, y_q, mask=mask)
     tl.store(y_s_ptr, y_s)
 
@@ -85,7 +89,7 @@ def triton_per_token_group_quant_fp8(
 
     fp8_min = -fp8_max
 
-    x_q = torch.empty_like(x, device=x.device, dtype=torch.float32) # dtype=dtype
+    x_q = torch.empty_like(x, device=x.device, dtype=torch.float64) # dtype=dtype
     M = x.numel() // group_size
     N = group_size
     x_s = torch.empty(
@@ -131,7 +135,7 @@ def sglang_per_token_group_quant_fp8(
 
     fp8_min = -fp8_max
 
-    x_q = torch.empty_like(x, device=x.device, dtype=torch.float32) # dtype=dtype
+    x_q = torch.empty_like(x, device=x.device, dtype=torch.float64) # dtype=dtype
     M = x.numel() // group_size
     N = group_size
     x_s = torch.empty(
@@ -156,15 +160,19 @@ def sglang_per_token_group_quant_fp8(
     ),
 )
 def test_per_token_group_quant_compare_implementations(batch_size, seq_len, group_size):
+
     x = torch.randn(
         (batch_size, seq_len, group_size * 2), device="cuda", dtype=torch.float16
     )
 
     x_q_triton, x_s_triton = triton_per_token_group_quant_fp8(x, group_size)
+
     x_q_sglang, x_s_sglang = sglang_per_token_group_quant_fp8(x, group_size)
 
-    breakpoint()
     assert torch.allclose(x_s_triton, x_s_sglang, rtol=1e-3, atol=1e-5)
+    # assert (x_s_triton - x_s_sglang).abs().max() < 1e-9
+    breakpoint()
+    # assert torch.allclose(x_q_triton, x, rtol=1e-3, atol=1e-5)
     assert torch.allclose(x_q_triton.to(fp8_type_).to(torch.float32), x_q_sglang.to(fp8_type_).to(torch.float32), rtol=1e-3, atol=1e-5)
 
 

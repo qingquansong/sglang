@@ -38,7 +38,9 @@ __global__ void per_token_group_quant_fp8_kernel(
   float local_absmax = eps;
 
   const T* group_input = input + block_group_offset;
-  FP8_TYPE* group_output = static_cast<FP8_TYPE*>(output_q) + block_group_offset;
+  // FP8_TYPE* group_output = static_cast<FP8_TYPE*>(output_q) + block_group_offset;
+  // float* group_output = static_cast<float*>(output_q) + block_group_offset;
+  double* group_output = static_cast<double*>(output_q) + block_group_offset;
   float* scale_output = output_s + (block_group_id + local_group_id);
 
   constexpr uint32_t vec_size = 16 / sizeof(T);
@@ -73,8 +75,15 @@ __global__ void per_token_group_quant_fp8_kernel(
 #pragma unroll
     for (uint32_t j = 0; j < vec_size; ++j) {
       float val = static_cast<float>(input_vec[j]);
-      float q_val = fminf(fmaxf(val / y_s, fp8_min), fp8_max);
-      group_output[i * vec_size + j] = FP8_TYPE(q_val);
+      // float q_val = fminf(fmaxf(val / y_s, fp8_min), fp8_max);
+      // float recip_y_s = static_cast<float>(1.0 / static_cast<double>(y_s));
+      // float q_val = val * recip_y_s; // * fp8_max / local_absmax;
+      // float q_val = static_cast<float>(static_cast<double>(val) / static_cast<double>(y_s));
+      double q_val = static_cast<double>(val) / static_cast<double>(y_s);
+      group_output[i * vec_size + j] = q_val;
+      // group_output[i * vec_size + j] = FP8_TYPE(q_val);
+      // float rounded = std::nearbyint(q_val);
+      // group_output[i * vec_size + j] = FP8_TYPE(rounded);
     }
   }
 }
