@@ -162,27 +162,27 @@ class FlashAttentionBackend(AttentionBackend):
         # max tokens * num_kv_heads * head_size
         key_cache = forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id)[0]
         value_cache = forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id)[1]
-        batch_size = len(forward_batch.seq_lens)
-        max_seq_len = forward_batch.seq_lens.max().item()
+        # batch_size = len(forward_batch.seq_lens)
+        # max_seq_len = forward_batch.seq_lens.max().item()
 
-        batched_key_cache = torch.zeros(
-            (batch_size, max_seq_len, layer.tp_k_head_num, layer.head_dim),
-            dtype=key_cache.dtype,
-            device=key_cache.device,
-        )
-        batched_value_cache = torch.zeros(
-            (batch_size, max_seq_len, layer.tp_v_head_num, layer.head_dim),
-            dtype=value_cache.dtype,
-            device=value_cache.device,
-        )
-        # Fill the batched caches with the correct values
-        offset = 0
-        for i, seq_len in enumerate(forward_batch.seq_lens):
-            req_idx = forward_batch.req_pool_indices[i]
-            for j in range(seq_len):
-                token_idx = forward_batch.req_to_token_pool.req_to_token[req_idx, j]
-                batched_key_cache[i, j] = key_cache[token_idx]
-                batched_value_cache[i, j] = value_cache[token_idx]
+        # batched_key_cache = torch.zeros(
+        #     (batch_size, max_seq_len, layer.tp_k_head_num, layer.head_dim),
+        #     dtype=key_cache.dtype,
+        #     device=key_cache.device,
+        # )
+        # batched_value_cache = torch.zeros(
+        #     (batch_size, max_seq_len, layer.tp_v_head_num, layer.head_dim),
+        #     dtype=value_cache.dtype,
+        #     device=value_cache.device,
+        # )
+        # # Fill the batched caches with the correct values
+        # offset = 0
+        # for i, seq_len in enumerate(forward_batch.seq_lens):
+        #     req_idx = forward_batch.req_pool_indices[i]
+        #     for j in range(seq_len):
+        #         token_idx = forward_batch.req_to_token_pool.req_to_token[req_idx, j]
+        #         batched_key_cache[i, j] = key_cache[token_idx]
+        #         batched_value_cache[i, j] = value_cache[token_idx]
 
         # Use Flash Attention for decode
         seqlens_in_batch = forward_batch.seq_lens
@@ -197,14 +197,22 @@ class FlashAttentionBackend(AttentionBackend):
         max_seq_len_q = 1
         max_seq_len_k = seqlens_in_batch.max().item()
 
-        o, _ = flash_attn_with_kvcache(
+        # torch.distributed.breakpoint()
+        # bsz = forward_batch.seq_lens.shape[0]
+        # print("key_cache.unsqueeze(1).shape", key_cache.unsqueeze(1).shape)
+        # print("forward_batch.seq_lens", forward_batch.seq_lens)
+        # print("max_seq_len_k", max_seq_len_k)
+        # print(forward_batch.req_to_token_pool.req_to_token.to(torch.int32)[:bsz, :max_seq_len_k])
+        # page_table = self.qq(forward_batch, layer, max_seq_len_k)
+        # print(page_table)
+        o = flash_attn_with_kvcache(
             # q=q.unsqueeze(1),
-            q=q.contiguous().view(
-                -1, layer.tp_q_head_num, layer.head_dim
-            ),  # Reshape to [batch_size, 1, num_heads, head_dim]
-            k_cache=batched_key_cache,  # Shape: [10, 1, 2, 8]
-            v_cache=batched_value_cache,  # Shape: [10, 1, 2, 8]
-            page_table=forward_batch.req_to_token_pool.req_to_token.to(torch.int32),
+            q=q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim),  # Reshape to [batch_size, 1, num_heads, head_dim]
+            k_cache=key_cache.unsqueeze(1),  # Shape: [10, 1, 2, 8]
+            v_cache=value_cache.unsqueeze(1),  # Shape: [10, 1, 2, 8]
+            # page_table=forward_batch.req_to_token_pool.req_to_token.to(torch.int32)[:bsz, :max_seq_len_k], # max_seq_len_k
+            page_table=forward_batch.req_to_token_pool.req_to_token[forward_batch.req_pool_indices, :max_seq_len_k],
+            # page_table=page_table.to(torch.int32), 
             cache_seqlens=forward_batch.seq_lens.to(torch.int32),
             cu_seqlens_q=cu_seqlens_q,
             cu_seqlens_k_new=cu_seqlens_k,
@@ -294,6 +302,23 @@ class FlashAttentionBackend(AttentionBackend):
         )
 
         return o.view(-1, layer.tp_q_head_num * layer.head_dim)
+
+
+    def qq(self, forward_batch: ForwardBatch, layer: RadixAttention, max_seq_len_k: int):
+        req_to_token = forward_batch.req_to_token_pool.req_to_token
+        req_pool_indices = forward_batch.req_pool_indices
+        seq_lens = forward_batch.seq_lens
+        # req_tokens = []
+        # torch.distributed.breakpoint()
+        # for seq_idx in range(seq_lens.shape[0]):
+        #     seq_len_kv = seq_lens[seq_idx]
+        #     req_pool_idx = req_pool_indices[seq_idx]
+        #     req_tokens.append(req_to_token[req_pool_idx, :max_seq_len_k]) # :seq_len_kv
+        # req_tokens = torch.stack(req_tokens, dim=0)
+
+        req_tokens = req_to_token[req_pool_indices, :max_seq_len_k]
+        # torch.distributed.breakpoint()
+        return req_tokens
 
     def prepare_kv_cache(self, forward_batch: ForwardBatch, layer: RadixAttention):
         kv_cache = forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id)
