@@ -224,6 +224,7 @@ class FlashInferAttnBackend(AttentionBackend):
             self.forward_metadata = PrefillMetadata(
                 self.prefill_wrappers_verify, False, False
             )
+            torch.distributed.breakpoint()
         else:
             prefix_lens = forward_batch.extend_prefix_lens
 
@@ -475,7 +476,7 @@ class FlashInferAttnBackend(AttentionBackend):
                 forward_batch.token_to_kv_pool.set_kv_buffer(
                     layer, cache_loc, k, v, layer.k_scale, layer.v_scale
                 )
-
+        # torch.distributed.breakpoint()
         o = decode_wrapper.forward(
             q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim),
             forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id),
@@ -998,11 +999,12 @@ class FlashInferMultiStepDraftBackend:
         global global_override_indptr_cpu
 
         for i in range(self.speculative_num_steps - 1):
-            forward_batch.spec_info.kv_indptr = self.kv_indptr[i, : bs + 1]
-            forward_batch.spec_info.kv_indices = kv_indices_buffer[i][
-                : seq_lens_sum * self.topk + bs * (i + 1)
+            forward_batch.spec_info.kv_indptr = self.kv_indptr[i, : bs + 1]   # 3 x 100 get size 4
+            forward_batch.spec_info.kv_indices = kv_indices_buffer[i][  # kv_indices_buffer [3, 393216]
+                : seq_lens_sum * self.topk + bs * (i + 1)  # 24 = 7 x 3 + 3 * (0 + 1), 27, 30
             ]
-            global_override_indptr_cpu = indptr_cpu_whole[i]
+            # torch.distributed.breakpoint()
+            global_override_indptr_cpu = indptr_cpu_whole[i]  # indptr_cpu_whole 3 x 4
             call_fn(i, forward_batch)
 
         global_override_indptr_cpu = None

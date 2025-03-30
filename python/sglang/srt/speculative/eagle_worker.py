@@ -183,6 +183,19 @@ class EAGLEWorker(TpModelWorker):
             self.draft_extend_attn_backend = None
             self.padded_static_len = self.speculative_num_steps + 1
             self.has_prefill_wrapper_verify = True
+        elif self.server_args.attention_backend == "fa3":
+            from sglang.srt.layers.attention.flashattention_backend import (
+                FlashAttentionMultiStepBackend
+            )
+
+            self.draft_attn_backend = FlashAttentionMultiStepBackend(
+                self.draft_model_runner,
+                self.topk,
+                self.speculative_num_steps,
+            )
+            self.draft_extend_attn_backend = None
+            self.padded_static_len = self.speculative_num_steps + 1
+            self.has_prefill_wrapper_verify = False
         else:
             raise ValueError(
                 f"EAGLE is not supportted in attention backend {self.server_args.attention_backend}"
@@ -411,18 +424,23 @@ class EAGLEWorker(TpModelWorker):
         return score_list, token_list, parents_list
 
     def verify(self, batch: ScheduleBatch, spec_info: EagleVerifyInput):
+        print("start verify 1")
         spec_info.prepare_for_verify(batch)
         batch.forward_mode = ForwardMode.TARGET_VERIFY
         batch.spec_info = spec_info
         model_worker_batch = batch.get_model_worker_batch()
+        print("start verify 1.5")
         logits_output, _ = self.target_worker.forward_batch_generation(
             model_worker_batch, skip_sample=True
         )
+        print("start verify 2")
         self._detect_nan_if_needed(logits_output)
         spec_info.hidden_states = logits_output.hidden_states
+        print("start verify 3")
         res: EagleVerifyOutput = spec_info.verify(
             batch, logits_output, self.token_to_kv_pool_allocator
         )
+        print("finish verify")
 
         # Post process based on verified outputs.
         # Pick indices that we care (accepeted)
@@ -437,7 +455,6 @@ class EAGLEWorker(TpModelWorker):
 
         if batch.return_logprob:
             self.add_logprob_values(batch, res, logits_output)
-
         return logits_output, res, model_worker_batch
 
     def add_logprob_values(
@@ -551,8 +568,9 @@ class EAGLEWorker(TpModelWorker):
         )
 
         # Run
+        print("start draft extend")
         logits_output = self.draft_model_runner.forward(forward_batch)
-
+        print("finish draft extend")
         self._detect_nan_if_needed(logits_output)
         self.capture_for_decode(logits_output, forward_batch.spec_info)
 
