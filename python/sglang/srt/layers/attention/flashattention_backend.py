@@ -145,7 +145,7 @@ class FlashAttentionBackend(AttentionBackend):
             ].repeat_interleave(draft_token_num, dim=0)
             aug_cum_len = torch.nn.functional.pad(torch.cumsum(aug_seq_lens, dim=0, dtype=torch.int32), (1, 0))
             for idx, single_seq_len in enumerate(aug_seq_lens):
-                metadata.page_table[idx *draft_token_num :(idx+1)*draft_token_num, : single_seq_len] *= forward_batch.spec_info.custom_mask[aug_cum_len[idx] * 2: aug_cum_len[idx+1] *2].view(draft_token_num, -1)
+                metadata.page_table[idx *draft_token_num :(idx+1)*draft_token_num, : single_seq_len] *= forward_batch.spec_info.custom_mask[aug_cum_len[idx] * draft_token_num: aug_cum_len[idx+1] * draft_token_num].view(draft_token_num, -1)
 
             metadata.max_seq_len_q = 1         
         else:
