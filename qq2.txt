@@ -1,50 +1,0 @@
-[2025-03-31 04:09:24] server_args=ServerArgs(model_path='/shared/public/elr-models/meta-llama/Meta-Llama-3.1-8B-Instruct/07eb05b21d191a58c577b4a45982fe0c049d0693', tokenizer_path='/shared/public/elr-models/meta-llama/Meta-Llama-3.1-8B-Instruct/07eb05b21d191a58c577b4a45982fe0c049d0693', tokenizer_mode='auto', skip_tokenizer_init=False, load_format='auto', trust_remote_code=True, dtype='bfloat16', kv_cache_dtype='auto', quantization=None, quantization_param_path=None, context_length=None, device='cuda', served_model_name='/shared/public/elr-models/meta-llama/Meta-Llama-3.1-8B-Instruct/07eb05b21d191a58c577b4a45982fe0c049d0693', chat_template=None, completion_template=None, is_embedding=False, revision=None, host='127.0.0.1', port=30000, mem_fraction_static=0.6, max_running_requests=32, max_total_tokens=None, chunked_prefill_size=8192, max_prefill_tokens=16384, schedule_policy='fcfs', schedule_conservativeness=1.0, cpu_offload_gb=0, page_size=1, tp_size=1, stream_interval=1, stream_output=False, random_seed=304304448, constrained_json_whitespace_pattern=None, watchdog_timeout=300, dist_timeout=None, download_dir=None, base_gpu_id=0, gpu_id_step=1, log_level='info', log_level_http=None, log_requests=False, log_requests_level=0, show_time_cost=False, enable_metrics=False, decode_log_interval=40, api_key=None, file_storage_path='sglang_storage', enable_cache_report=False, reasoning_parser=None, dp_size=1, load_balance_method='round_robin', ep_size=1, dist_init_addr=None, nnodes=1, node_rank=0, json_model_override_args='{}', lora_paths=None, max_loras_per_batch=8, lora_backend='triton', attention_backend='fa3', sampling_backend='flashinfer', grammar_backend='xgrammar', speculative_algorithm='EAGLE3', speculative_draft_model_path='/shared/public/elr-models/jamesliu1/sglang-EAGLE3-Llama-3.1-Instruct-8B/e5ed08d66f528a95ce89f5d4fd136a28f6def714', speculative_num_steps=3, speculative_eagle_topk=1, speculative_num_draft_tokens=2, speculative_accept_threshold_single=1.0, speculative_accept_threshold_acc=1.0, speculative_token_map=None, enable_double_sparsity=False, ds_channel_config_path=None, ds_heavy_channel_num=32, ds_heavy_token_num=256, ds_heavy_channel_type='qk', ds_sparse_decode_threshold=4096, disable_radix_cache=False, disable_cuda_graph=True, disable_cuda_graph_padding=False, enable_nccl_nvls=False, disable_outlines_disk_cache=False, disable_custom_all_reduce=False, disable_mla=False, disable_overlap_schedule=True, enable_mixed_chunk=False, enable_dp_attention=False, enable_ep_moe=False, enable_deepep_moe=False, enable_torch_compile=False, torch_compile_max_bs=32, cuda_graph_max_bs=160, cuda_graph_bs=None, torchao_config='', enable_nan_detection=False, enable_p2p_check=False, triton_attention_reduce_in_fp32=False, triton_attention_num_kv_splits=8, num_continuous_decode_steps=1, delete_ckpt_after_loading=False, enable_memory_saver=False, allow_auto_truncate=False, enable_custom_logit_processor=False, tool_call_parser=None, enable_hierarchical_cache=False, hicache_ratio=2.0, enable_flashinfer_mla=False, enable_flashmla=False, flashinfer_mla_disable_ragged=False, warmups=None, debug_tensor_dump_output_folder=None, debug_tensor_dump_input_file=None, debug_tensor_dump_inject=False, disaggregation_mode='null', disaggregation_bootstrap_port=8998)
-[2025-03-31 04:09:30 TP0] Init torch distributed begin.
-[2025-03-31 04:09:31 TP0] Failed to import pynvml with ModuleNotFoundError("No module named 'pynvml'")
-[2025-03-31 04:09:31 TP0] Init torch distributed ends. mem usage=0.00 GB
-[2025-03-31 04:09:31 TP0] Load weight begin. avail mem=139.20 GB
-[2025-03-31 04:09:31 TP0] The following error message 'operation scheduled before its operands' can be ignored.
-Loading safetensors checkpoint shards:   0% Completed | 0/4 [00:00<?, ?it/s]
-Loading safetensors checkpoint shards:  25% Completed | 1/4 [00:00<00:01,  1.91it/s]
-Loading safetensors checkpoint shards:  50% Completed | 2/4 [00:01<00:01,  1.51it/s]
-Loading safetensors checkpoint shards:  75% Completed | 3/4 [00:01<00:00,  1.99it/s]
-Loading safetensors checkpoint shards: 100% Completed | 4/4 [00:02<00:00,  1.82it/s]
-Loading safetensors checkpoint shards: 100% Completed | 4/4 [00:02<00:00,  1.80it/s]
-
-[2025-03-31 04:09:35 TP0] Load weight end. type=LlamaForCausalLM, dtype=torch.bfloat16, avail mem=124.09 GB, mem usage=15.11 GB.
-[2025-03-31 04:09:35 TP0] KV Cache is allocated. #tokens: 560707, K size: 34.22 GB, V size: 34.22 GB
-[2025-03-31 04:09:35 TP0] Memory pool end. avail mem=55.49 GB
-[2025-03-31 04:09:35 TP0] FlashAttention v3 Backend is in Beta. Multimodal, FP8, and Speculative Decoding are not supported.
-/home/jobuser/sglang/python/sglang/srt/utils.py:824: UserWarning: The given NumPy array is not writable, and PyTorch does not support non-writable tensors. This means writing to this tensor will result in undefined behavior. You may want to copy the array to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:206.)
-  tensor_data = torch.ByteTensor(
-[2025-03-31 04:09:35 TP0] Casting torch.float16 to torch.bfloat16.
-[2025-03-31 04:09:35 TP0] Warning: User-specified context_length (131072) is greater than the derived context_length (2048). This may lead to incorrect model outputs or CUDA errors.
-[2025-03-31 04:09:35 TP0] Init torch distributed begin.
-[2025-03-31 04:09:35 TP0] Init torch distributed ends. mem usage=0.00 GB
-[2025-03-31 04:09:35 TP0] Load weight begin. avail mem=55.39 GB
-Loading pt checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
-Loading pt checkpoint shards: 100% Completed | 1/1 [00:01<00:00,  1.17s/it]
-Loading pt checkpoint shards: 100% Completed | 1/1 [00:01<00:00,  1.17s/it]
-
-[2025-03-31 04:09:36 TP0] Load weight end. type=LlamaForCausalLMEagle3, dtype=torch.bfloat16, avail mem=53.62 GB, mem usage=1.77 GB.
-[2025-03-31 04:09:36 TP0] KV Cache is allocated. #tokens: 560707, K size: 1.07 GB, V size: 1.07 GB
-[2025-03-31 04:09:36 TP0] Memory pool end. avail mem=51.48 GB
-[2025-03-31 04:09:36 TP0] FlashAttention v3 Backend is in Beta. Multimodal, FP8, and Speculative Decoding are not supported.
-[2025-03-31 04:09:37 TP0] max_total_num_tokens=560707, chunked_prefill_size=8192, max_prefill_tokens=16384, max_running_requests=32, context_len=131072
-[2025-03-31 04:09:37] INFO:     Started server process [1346364]
-[2025-03-31 04:09:37] INFO:     Waiting for application startup.
-[2025-03-31 04:09:37] INFO:     Application startup complete.
-[2025-03-31 04:09:37] INFO:     Uvicorn running on http://127.0.0.1:30000 (Press CTRL+C to quit)
-[2025-03-31 04:09:38] INFO:     127.0.0.1:52744 - "GET /get_model_info HTTP/1.1" 200 OK
-[2025-03-31 04:09:38 TP0] Prefill batch. #new-seq: 1, #new-token: 7, #cached-token: 0, token usage: 0.00, #running-req: 0, #queue-req: 0, 
-[2025-03-31 04:09:40] INFO:     127.0.0.1:52760 - "POST /generate HTTP/1.1" 200 OK
-[2025-03-31 04:09:40] The server is fired up and ready to roll!
-[2025-03-31 04:09:51 TP0] Prefill batch. #new-seq: 1, #new-token: 18, #cached-token: 1, token usage: 0.00, #running-req: 0, #queue-req: 0, 
-[2025-03-31 04:09:52 TP0] Decode batch. #running-req: 1, #token: 71, token usage: 0.00, accept len: 1.45, gen throughput (token/s): 3.84, #queue-req: 0, 
-[2025-03-31 04:09:53 TP0] Decode batch. #running-req: 1, #token: 135, token usage: 0.00, accept len: 1.60, gen throughput (token/s): 100.74, #queue-req: 0, 
-[2025-03-31 04:09:53 TP0] Decode batch. #running-req: 1, #token: 208, token usage: 0.00, accept len: 1.82, gen throughput (token/s): 114.77, #queue-req: 0, 
-[2025-03-31 04:09:54 TP0] Decode batch. #running-req: 1, #token: 278, token usage: 0.00, accept len: 1.75, gen throughput (token/s): 110.38, #queue-req: 0, 
-[2025-03-31 04:09:54 TP0] Decode batch. #running-req: 1, #token: 348, token usage: 0.00, accept len: 1.75, gen throughput (token/s): 110.05, #queue-req: 0, 
-[2025-03-31 04:09:55 TP0] Decode batch. #running-req: 1, #token: 413, token usage: 0.00, accept len: 1.62, gen throughput (token/s): 102.28, #queue-req: 0, 
-[2025-03-31 04:09:56 TP0] Decode batch. #running-req: 1, #token: 486, token usage: 0.00, accept len: 1.82, gen throughput (token/s): 115.01, #queue-req: 0, 
-[2025-03-31 04:09:56] INFO:     127.0.0.1:37262 - "POST /generate HTTP/1.1" 200 OK

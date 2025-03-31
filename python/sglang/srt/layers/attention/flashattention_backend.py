@@ -120,8 +120,9 @@ class FlashAttentionBackend(AttentionBackend):
                 # metadata.page_table = forward_batch.req_to_token_pool.req_to_token[
                 #     forward_batch.req_pool_indices, : metadata.max_seq_len_k
                 # ]
-
-                metadata.cache_seqlens_int32 = (seqlens_in_batch +  (self.step_id + 1)).repeat_interleave(self.topk).to(torch.int32)
+                seq_lens_with_decode = seqlens_in_batch +  (self.step_id + 1)
+                metadata.cache_seqlens_int32 = (seq_lens_with_decode).repeat_interleave(self.topk).to(torch.int32)
+                # metadata.cache_seqlens_int32 = (seqlens_in_batch +  (self.step_id + 1)).repeat(self.topk).to(torch.int32)
                 metadata.cu_seqlens_k = torch.nn.functional.pad(
                     torch.cumsum(
                         metadata.cache_seqlens_int32, 
@@ -134,12 +135,27 @@ class FlashAttentionBackend(AttentionBackend):
                 metadata.max_seq_len_k = metadata.cache_seqlens_int32.max().item()
                 metadata.page_table = forward_batch.req_to_token_pool.req_to_token[
                     forward_batch.req_pool_indices, : metadata.max_seq_len_k
-                ]     
+                ]      # (bsz, max_seq_len)
                 metadata.page_table = metadata.page_table.repeat_interleave(self.topk, dim=0)
-                metadata.page_table[:, -1] = forward_batch.out_cache_loc[batch_size * self.step_id * self.topk : batch_size * (self.step_id + 1) * self.topk]
+                # metadata.page_table = metadata.page_table.repeat(self.topk, 1)  # (bsz * self.topk, max_seq_len)
+                # torch.distributed.breakpoint()
+                # metadata.page_table[:, -1] = forward_batch.out_cache_loc[batch_size * self.step_id * self.topk : batch_size * (self.step_id + 1) * self.topk]
+
+                cache_loc = forward_batch.out_cache_loc.view(self.speculative_num_steps, -1).T
+                # torch.distributed.breakpoint()   
+
+                for idx, single_seq_len in enumerate(seq_lens_with_decode):
+                    real_bsz_start_idx = idx * self.topk 
+                    real_bsz_end_idx = (idx+1) * self.topk
+                    # try:
+                    metadata.page_table[real_bsz_start_idx : real_bsz_end_idx, (single_seq_len-(self.step_id + 1)):single_seq_len] = cache_loc[real_bsz_start_idx:real_bsz_end_idx, :(self.step_id + 1)]
+                    # except:
+                    #     torch.distributed.breakpoint()   
+
                 # metadata.page_table = metadata.page_table.repeat(self.topk, 1)
                 # print("decode metadata", metadata)
                 # print("decode forward_batch",forward_batch)
+                # QQQQQ
                 # torch.distributed.breakpoint()   
             else:
                 metadata.cu_seqlens_q = torch.arange(
@@ -164,6 +180,7 @@ class FlashAttentionBackend(AttentionBackend):
 
             aug_seq_lens = (forward_batch.seq_lens + draft_token_num).to(torch.int32)
             metadata.cache_seqlens_int32 = aug_seq_lens.repeat_interleave(forward_batch.spec_info.draft_token_num)
+            # metadata.cache_seqlens_int32 = aug_seq_lens.repeat(forward_batch.spec_info.draft_token_num)
             metadata.cu_seqlens_k = torch.nn.functional.pad(
                 torch.cumsum(
                     metadata.cache_seqlens_int32, 
@@ -178,11 +195,21 @@ class FlashAttentionBackend(AttentionBackend):
             metadata.page_table = forward_batch.req_to_token_pool.req_to_token[
                 forward_batch.req_pool_indices, : metadata.max_seq_len_k
             ].repeat_interleave(draft_token_num, dim=0)
-            mask = forward_batch.spec_info.custom_mask.view(draft_token_num, -1)  # [draft_token_num,  cu seq lens]
+            # metadata.page_table = forward_batch.req_to_token_pool.req_to_token[
+            #     forward_batch.req_pool_indices, : metadata.max_seq_len_k
+            # ].repeat(draft_token_num, 1)
+            # mask = forward_batch.spec_info.custom_mask.view(draft_token_num, -1)  # [draft_token_num,  cu seq lens]
+            aug_cum_len = torch.nn.functional.pad(torch.cumsum(aug_seq_lens, dim=0, dtype=torch.int32), (1, 0))
+            # print(metadata)
+            # print(forward_batch)
             # torch.distributed.breakpoint()
-
             for idx, single_seq_len in enumerate(aug_seq_lens):
-                metadata.page_table[idx *draft_token_num :(idx+1)*draft_token_num, : single_seq_len] *= mask[idx * draft_token_num :(idx+1)*draft_token_num ] 
+                # try:
+                    # metadata.page_table[idx *draft_token_num :(idx+1)*draft_token_num, : single_seq_len] *= mask[:, aug_cum_len[idx]: aug_cum_len[idx+1]]
+                    metadata.page_table[idx *draft_token_num :(idx+1)*draft_token_num, : single_seq_len] *= forward_batch.spec_info.custom_mask[aug_cum_len[idx] * 2: aug_cum_len[idx+1] *2].view(draft_token_num, -1)
+                # except:
+            # print("QQQQQ")
+            # torch.distributed.breakpoint()
 
             # for idx, single_seq_len in enumerate(forward_batch.extend_seq_lens_cpu):
             #     # torch.distributed.breakpoint()
