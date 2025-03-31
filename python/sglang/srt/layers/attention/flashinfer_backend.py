@@ -475,7 +475,6 @@ class FlashInferAttnBackend(AttentionBackend):
                 forward_batch.token_to_kv_pool.set_kv_buffer(
                     layer, cache_loc, k, v, layer.k_scale, layer.v_scale
                 )
-        # torch.distributed.breakpoint()
         o = decode_wrapper.forward(
             q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim),
             forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id),
@@ -660,11 +659,6 @@ class FlashInferIndicesUpdaterDecode:
             kv_indptr, kv_indices = spec_info.kv_indptr, spec_info.kv_indices
             bs = kv_indptr.shape[0] - 1
 
-        print("\ndecode")
-        print("kv_indptr", kv_indptr)
-        print("kv_indices", kv_indices)
-        print("self.kv_last_page_len[:bs]", self.kv_last_page_len[:bs])
-        torch.distributed.breakpoint()
         wrapper.begin_forward(
             kv_indptr,
             kv_indices,
@@ -898,13 +892,6 @@ class FlashInferIndicesUpdaterPrefill:
                 q_data_type=self.q_data_type,
             )
 
-        print("\n prefill")
-        print("qo_indptr", qo_indptr)
-        print("kv_indptr", kv_indptr)
-        print("kv_indices", kv_indices)
-        print("self.kv_last_page_len[:bs]", self.kv_last_page_len[:bs])
-        print("custom_mask", custom_mask)
-        torch.distributed.breakpoint()
         # cached part
         wrapper_paged.begin_forward(
             qo_indptr,
@@ -1014,7 +1001,6 @@ class FlashInferMultiStepDraftBackend:
             forward_batch.spec_info.kv_indices = kv_indices_buffer[i][  # kv_indices_buffer [3, 393216]
                 : seq_lens_sum * self.topk + bs * (i + 1)  # 24 = 7 x 3 + 3 * (0 + 1), 27, 30
             ]
-            # torch.distributed.breakpoint()
             global_override_indptr_cpu = indptr_cpu_whole[i]  # indptr_cpu_whole 3 x 4
             call_fn(i, forward_batch)
 

@@ -171,16 +171,10 @@ class TpModelWorker:
         launch_done: Optional[threading.Event] = None,
         skip_sample: bool = False,
     ) -> Tuple[LogitsProcessorOutput, Optional[torch.Tensor]]:
-        # print("this one?")
-        # torch.distributed.breakpoint()
         forward_batch = ForwardBatch.init_new(model_worker_batch, self.model_runner)
-        # print("this one forward_batch", forward_batch)
-        # print(forward_batch)
-        # print("stuck?")
         logits_output = self.model_runner.forward(forward_batch)
         if launch_done:
             launch_done.set()
-        # print("pass")
 
         if skip_sample:
             next_token_ids = None
