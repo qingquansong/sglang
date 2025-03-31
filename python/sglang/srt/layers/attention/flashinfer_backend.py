@@ -224,7 +224,6 @@ class FlashInferAttnBackend(AttentionBackend):
             self.forward_metadata = PrefillMetadata(
                 self.prefill_wrappers_verify, False, False
             )
-            torch.distributed.breakpoint()
         else:
             prefix_lens = forward_batch.extend_prefix_lens
 
@@ -661,6 +660,11 @@ class FlashInferIndicesUpdaterDecode:
             kv_indptr, kv_indices = spec_info.kv_indptr, spec_info.kv_indices
             bs = kv_indptr.shape[0] - 1
 
+        print("\ndecode")
+        print("kv_indptr", kv_indptr)
+        print("kv_indices", kv_indices)
+        print("self.kv_last_page_len[:bs]", self.kv_last_page_len[:bs])
+        torch.distributed.breakpoint()
         wrapper.begin_forward(
             kv_indptr,
             kv_indices,
@@ -894,6 +898,13 @@ class FlashInferIndicesUpdaterPrefill:
                 q_data_type=self.q_data_type,
             )
 
+        print("\n prefill")
+        print("qo_indptr", qo_indptr)
+        print("kv_indptr", kv_indptr)
+        print("kv_indices", kv_indices)
+        print("self.kv_last_page_len[:bs]", self.kv_last_page_len[:bs])
+        print("custom_mask", custom_mask)
+        torch.distributed.breakpoint()
         # cached part
         wrapper_paged.begin_forward(
             qo_indptr,

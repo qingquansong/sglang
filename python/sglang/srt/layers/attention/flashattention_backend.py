@@ -204,10 +204,10 @@ class FlashAttentionBackend(AttentionBackend):
             # print(metadata)
             # print(forward_batch)
             # print("finish-prepare metadata verify")
-            # torch.distributed.breakpoint()
+            # torch.distributed.breakpoint()          
         else:
             # Precompute cumulative sequence lengths
-            if any(forward_batch.extend_prefix_lens_cpu):
+            if any(forward_batch.extend_prefix_lens_cpu) or forward_batch.forward_mode == ForwardMode.DRAFT_EXTEND:
                 extend_seq_lens = forward_batch.extend_seq_lens
                 metadata.cu_seqlens_q = torch.nn.functional.pad(
                     torch.cumsum(extend_seq_lens, dim=0, dtype=torch.int32), (1, 0)
@@ -285,6 +285,13 @@ class FlashAttentionBackend(AttentionBackend):
             value_cache = value_cache.view(
                 -1, self.page_size, layer.tp_v_head_num, layer.head_dim
             )
+            # if layer.layer_id == 0:
+            #     print("extend\n")
+            #     print("metadata.cu_seqlens_q", metadata.cu_seqlens_q)
+            #     print("metadata.cu_seqlens_k", metadata.cu_seqlens_k)
+            #     print("metadata.max_seq_len_q", metadata.max_seq_len_q)
+            #     print("page_table", page_table)
+            #     torch.distributed.breakpoint()
             o = flash_attn_with_kvcache(
                 q=q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim),
                 k_cache=key_cache,
@@ -398,7 +405,14 @@ class FlashAttentionBackend(AttentionBackend):
 
             # Pre-reshape query tensor
             q_reshaped = q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim)
-            # torch.distributed.breakpoint()
+            # if layer.layer_id == 0:
+            #     print("decode\n")
+            #     print("metadata.cu_seqlens_q", metadata.cu_seqlens_q)
+            #     print("metadata.cache_seqlens_int32", metadata.cache_seqlens_int32)
+            #     print("metadata.cu_seqlens_k", metadata.cu_seqlens_k)
+            #     print("metadata.max_seq_len_q", metadata.max_seq_len_q)
+            #     print("page_table", page_table)
+            #     torch.distributed.breakpoint()
             # Run attention with precomputed values
             o = flash_attn_with_kvcache(
                 q=q_reshaped,
