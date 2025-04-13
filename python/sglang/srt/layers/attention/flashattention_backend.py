@@ -1443,6 +1443,10 @@ class FlashAttentionBackend(AttentionBackend):
                     )
                     # may not need
                     metadata_expand.page_table[cache_loc.shape[0] :].fill_(0)
+                    metadata.page_table[cache_loc.shape[0] :].fill_(0)
+                    # print("decode draft step id", self.speculative_step_id)
+                    # print("metadata", metadata)
+                    # print("metadata_expand", metadata_expand)
             else:
                 metadata = self.decode_cuda_graph_metadata[bs]
                 # Normal Decode
@@ -1509,6 +1513,7 @@ class FlashAttentionBackend(AttentionBackend):
                     req_pool_indices, : metadata.max_seq_len_k
                 ]
                 metadata.page_table[:, : metadata.max_seq_len_k].copy_(page_table)
+                metadata.page_table[spec_info.positions.numel() :].fill_(0)
 
                 # 2. The second half of metadata for draft tokens (per_batch_num_tokens = topk)
                 metadata_expand = self.target_verify_metadata_topk_expand[bs]
@@ -1556,6 +1561,9 @@ class FlashAttentionBackend(AttentionBackend):
                 )
                 # may not need
                 metadata_expand.page_table[spec_info.positions.numel() :].fill_(0)
+                # print("target verify")
+                # print("metadata", metadata)
+                # print("metadata_expand", metadata_expand)
 
         if encoder_lens is not None:
             # Only support encoder size 1 for now

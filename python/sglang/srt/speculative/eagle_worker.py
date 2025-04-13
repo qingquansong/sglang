@@ -398,6 +398,7 @@ class EAGLEWorker(TpModelWorker):
         can_cuda_graph = self.cuda_graph_runner and self.cuda_graph_runner.can_run(
             forward_batch
         )
+        # if False: 
         if can_cuda_graph:
             score_list, token_list, parents_list = self.cuda_graph_runner.replay(
                 forward_batch
